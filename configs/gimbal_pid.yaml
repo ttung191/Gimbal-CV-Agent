@@ -1,0 +1,13 @@
+# PID Controller configuration for smooth gimbal movement
+pid:
+  pan:
+    kp: 0.15  # Proportional gain
+    ki: 0.01  # Integral gain
+    kd: 0.05  # Derivative gain
+  tilt:
+    kp: 0.15
+    ki: 0.01
+    kd: 0.05
+  
+  # Maximum rotation speed to prevent motor damage
+  max_speed: 100

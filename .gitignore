@@ -1,0 +1,6 @@
+﻿venv/
+__pycache__/
+*.pyc
+data/logs/
+models/detection/*.pt
+.env

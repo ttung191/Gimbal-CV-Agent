@@ -1,0 +1,12 @@
+camera:
+  source: 0
+  width: 640
+  height: 480
+  fps: 30
+
+target:
+  class_id: 0
+  confidence_threshold: 0.5
+
+gimbal:
+  deadzone: 20

@@ -1,0 +1,10 @@
+# Hyperparameters for AI models
+detection:
+  model_name: "yolov8n"
+  input_size: 640
+  iou_threshold: 0.45  # Intersection over Union threshold for NMS
+  classes_to_detect: [0] # COCO class 0 is 'person'
+
+tracking:
+  max_age: 30       # Frames to keep the track alive without detection
+  n_init: 3         # Frames required to confirm a new track
