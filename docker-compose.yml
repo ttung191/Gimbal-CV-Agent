@@ -4,9 +4,9 @@ services:
     container_name: cv_agent_container
     volumes:
       - .:/app
-    # Dòng dưới đây cực kỳ quan trọng để Container truy cập được Camera của máy chủ
-    devices:
-      - "/dev/video0:/dev/video0"
+    # Ẩn 2 dòng dưới đây để Docker không đòi Webcam vật lý nữa
+    # devices:
+    #   - "/dev/video0:/dev/video0"
     environment:
       - DISPLAY=$DISPLAY
     network_mode: "host"
