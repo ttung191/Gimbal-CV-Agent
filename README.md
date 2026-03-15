@@ -13,7 +13,7 @@ A professional-grade **Computer Vision AI Agent** designed for real-time object 
 
 ##  Key Features
 
-* **Real-time Perception:** Powered by optimized YOLOv8 inference for high-speed, accurate target detection.
+* **Real-time Perception:** Powered by optimized YOLOv11 inference for high-speed, accurate target detection.
 * **Ghost Tracking (Memory Module):** Predicts and maintains target trajectories using short-term memory when the subject is temporarily lost or occluded.
 * **Headless Edge Processing:** Automatically processes video streams in the background without requiring a GUI, saving the annotated output with telemetry data (XVID `.avi` format).
 * **PID Control Simulation:** Translates visual coordinate errors into actionable Gimbal Pan/Tilt commands with customizable deadzones.
