@@ -1,125 +1,96 @@
 import cv2
-import yaml
-import os
-from src.core import AgentLogger, FPSCounter
-from src.ingestion import StreamReader
-from src.perception import Detector
-from src.agent import ShortTermMemory, DecisionEngine
-from src.control import GimbalController
+import time
 
-def load_config(config_path="configs/system_config.yaml"):
-    with open(config_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+from src.core.logger import AgentLogger
+from src.core.metrics import FPSCounter
+from src.ingestion.stream_reader import StreamReader
+from src.perception.detector import Detector
+from src.perception.depth_estimator import DepthEstimator
+from src.preprocessing.environment_fix import EnvironmentFixer
+from src.agent.memory import ShortTermMemory
+from src.agent.decision_engine import DecisionEngine
+from src.control.gimbal_controller import GimbalController
 
 def main():
-    logger = AgentLogger(name="GimbalAgent")
-    logger.info("Initializing Gimbal CV Agent (Docker/Recording Version)...")
+    logger = AgentLogger(name="MainApp")
+    logger.info("Đang khởi động hệ thống Gimbal CV Agent (YOLO11 - ONNX)...")
 
+    frame_width, frame_height = 640, 480
+    
     try:
-        config = load_config()
+        streamer = StreamReader(source=0, width=frame_width, height=frame_height).start()
     except Exception as e:
-        logger.error(f"Config loading error: {e}")
+        logger.error(f"Lỗi khởi tạo luồng video: {e}")
         return
 
-    # 1. Khởi tạo Ingestion (Đọc Stream/Video)
-    logger.info("Initializing Ingestion (Camera/Video)...")
-    camera = StreamReader(
-        source=config['camera']['source'],
-        width=config['camera']['width'],
-        height=config['camera']['height']
-    ).start()
-
-    # 2. Khởi tạo Perception (YOLOv8)
-    logger.info("Initializing Perception (YOLOv8)...")
-    detector = Detector(
-        conf_thresh=config['target']['confidence_threshold'],
-        target_class=config['target']['class_id']
-    )
-
-    # 3. Khởi tạo Control (Gimbal)
-    logger.info("Initializing Control (Gimbal)...")
-    gimbal = GimbalController(
-        frame_width=config['camera']['width'],
-        frame_height=config['camera']['height'],
-        deadzone=config['gimbal']['deadzone']
-    )
-
-    # 4. Khởi tạo Agent (Trí nhớ & Ra quyết định)
-    logger.info("Initializing Agent (Memory & Decision)...")
+    env_fixer = EnvironmentFixer()
+    
+    # Sử dụng mô hình ONNX siêu tốc
+    detector = Detector(model_path="yolo11n.onnx", conf_thresh=0.5, target_class=0)
+    depth_estimator = DepthEstimator()
+    
     memory = ShortTermMemory(max_size=30)
     decision_engine = DecisionEngine(memory_module=memory)
+    gimbal_ctrl = GimbalController(frame_width=frame_width, frame_height=frame_height, deadzone=30, alpha=0.4)
     fps_counter = FPSCounter()
 
-    # --- KHỞI TẠO TÍNH NĂNG RECORDING ---
-    os.makedirs('data/sample_streams', exist_ok=True)
-    
-    output_path = 'data/sample_streams/agent_record.avi' 
-    fourcc = cv2.VideoWriter_fourcc(*'XVID') 
-    
-    # Lấy chính xác số FPS từ file config thay vì hardcode 20.0
-    video_fps = config['camera']['fps']
-    out_video = cv2.VideoWriter(output_path, fourcc, video_fps, (config['camera']['width'], config['camera']['height']))
-    logger.info(f"Video sẽ được tự động lưu tại: {output_path} với {video_fps} FPS")
-    # ------------------------------------
+    logger.info("Hệ thống đã sẵn sàng. Bắt đầu vòng lặp chính.")
 
-    logger.info("=== SYSTEM READY. RUNNING IN BACKGROUND... ===")
+    while True:
+        ret, frame = streamer.read_frame()
+        if not ret or frame is None:
+            continue 
 
-    frame_count = 0
-    max_frames = 200 # Chạy ngầm 200 frame
+        fps = fps_counter.update()
 
-    while frame_count < max_frames:
-        ret, frame = camera.read_frame()
-        if not ret:
-            logger.warning("Không đọc được frame hoặc hết video.")
-            break
+        # Bỏ comment dòng dưới nếu muốn bật khử sương mù/thiếu sáng
+        # frame = env_fixer.enhance_visibility(frame)
 
-        # Ép khung hình về đúng chuẩn cấu hình
-        frame = cv2.resize(frame, (config['camera']['width'], config['camera']['height']))
-
-        current_fps = fps_counter.update()
-        target_info = detector.detect(frame)
+        target_info = detector.detect_and_track(frame)
         target_center = target_info["center"] if target_info else None
 
-        status_message = decision_engine.evaluate(target_center)
-        pan, tilt = "STOP", "STOP"
+        agent_status = decision_engine.evaluate(target_center)
         
-        if target_info:
-            bbox = target_info["bbox"]
-            center = target_info["center"]
-            
-            # Vẽ Box Xanh và Tâm
-            cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)
-            cv2.circle(frame, center, 5, (0, 0, 255), -1)
-            
-            pan, tilt, _, _ = gimbal.calculate_commands(center)
-        else:
-            last_known = memory.get_last_known_position()
-            if last_known:
-                # Vẽ Ghost Target Vàng
-                cv2.circle(frame, last_known, 8, (0, 255, 255), 2)
-                cv2.putText(frame, "GHOST TARGET", (last_known[0]+10, last_known[1]), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-                pan, tilt, _, _ = gimbal.calculate_commands(last_known)
+        active_target_pos = target_center 
+        if not active_target_pos and "Predicting" in agent_status:
+            active_target_pos = memory.get_last_known_position()
+
+        pan_cmd, tilt_cmd, err_x, err_y = gimbal_ctrl.calculate_commands(active_target_pos)
 
         # Vẽ HUD
-        color_status = (0, 255, 0) if target_info else ((0, 255, 255) if memory.get_last_known_position() else (0, 165, 255))
-        cv2.putText(frame, f"STATUS: {status_message}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_status, 2)
-        cv2.putText(frame, f"PAN: {pan} | TILT: {tilt}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-        cv2.putText(frame, f"FPS: {current_fps}", (config['camera']['width'] - 120, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
-        cv2.drawMarker(frame, (gimbal.center_x, gimbal.center_y), (0, 255, 255), cv2.MARKER_CROSS, 20, 1)
+        cv2.line(frame, (frame_width//2 - 20, frame_height//2), (frame_width//2 + 20, frame_height//2), (0, 255, 0), 2)
+        cv2.line(frame, (frame_width//2, frame_height//2 - 20), (frame_width//2, frame_height//2 + 20), (0, 255, 0), 2)
 
-        # LƯU FRAME VÀO VIDEO FILE
-        out_video.write(frame)
-        frame_count += 1
-        
-        # In log tiến độ
-        if frame_count % 30 == 0:
-            logger.info(f"Đã xử lý {frame_count}/{max_frames} frames. Status: {status_message}")
+        if target_info:
+            x1, y1, x2, y2 = target_info["bbox"]
+            track_id = target_info.get("track_id", "?")
+            distance = depth_estimator.estimate_distance(target_info["height"])
+            
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+            cv2.circle(frame, target_info["center"], 5, (0, 0, 255), -1)
+            
+            info_text = f"ID:{track_id} | Dist:{distance}m"
+            cv2.putText(frame, info_text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+            cv2.line(frame, (frame_width//2, frame_height//2), target_info["center"], (255, 0, 0), 2)
 
-    # Dọn dẹp tài nguyên
-    camera.stop()
-    out_video.release()
-    logger.info("Đã ghi hình xong. Hệ thống tắt an toàn.")
+        elif active_target_pos:
+            cv2.circle(frame, active_target_pos, 5, (128, 128, 128), -1)
+            cv2.putText(frame, "GHOST TRACKING", (active_target_pos[0]-50, active_target_pos[1]-10), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (128, 128, 128), 2)
+
+        cv2.putText(frame, f"FPS: {fps}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        cv2.putText(frame, f"Status: {agent_status}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+        cv2.putText(frame, f"CMD: [{pan_cmd}] | [{tilt_cmd}]", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+        cv2.imshow("Gimbal CV Agent - Live View", frame)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            logger.info("Nhận lệnh thoát từ người dùng.")
+            break
+
+    streamer.stop()
+    cv2.destroyAllWindows()
+    logger.info("Hệ thống đã tắt an toàn.")
 
 if __name__ == "__main__":
     main()

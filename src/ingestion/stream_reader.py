@@ -1,36 +1,47 @@
 import cv2
+import threading
+import queue
+import time
 
 class StreamReader:
-    """
-    Module chịu trách nhiệm kết nối và đọc luồng video từ Camera/Gimbal.
-    """
-    def __init__(self, source=0, width=640, height=480):
+    def __init__(self, source=0, width=640, height=480, queue_size=5):
         self.source = source
         self.width = width
         self.height = height
         self.cap = None
+        self.q = queue.Queue(maxsize=queue_size)
+        self.stopped = False
 
     def start(self):
-        """Mở kết nối tới camera"""
-        print(f"[INFO] Dang khoi tao luong video tu nguon: {self.source}")
         self.cap = cv2.VideoCapture(self.source)
-        
-        # Thiết lập độ phân giải
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         
         if not self.cap.isOpened():
-            raise ValueError(f"[ERROR] Khong the mo camera nguon {self.source}. Vui long kiem tra lai ket noi.")
+            raise ValueError(f"[ERROR] Không thể mở camera {self.source}.")
+        
+        t = threading.Thread(target=self._update, args=())
+        t.daemon = True
+        t.start()
         return self
 
+    def _update(self):
+        while not self.stopped:
+            if not self.q.full():
+                ret, frame = self.cap.read()
+                if not ret:
+                    self.stop()
+                    return
+                self.q.put(frame)
+            else:
+                time.sleep(0.01)
+
     def read_frame(self):
-        """Đọc một khung hình từ camera"""
-        if self.cap is None or not self.cap.isOpened():
+        if self.q.empty():
             return False, None
-        return self.cap.read()
+        return True, self.q.get()
 
     def stop(self):
-        """Giải phóng tài nguyên khi kết thúc"""
+        self.stopped = True
         if self.cap:
             self.cap.release()
-            print("[INFO] Da dong luong video.")
