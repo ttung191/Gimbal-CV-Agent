@@ -1,7 +1,7 @@
 #  Gimbal CV Agent: Autonomous Target Tracking System
 
 [![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![AI Model](https://img.shields.io/badge/Model-YOLOv8-green.svg)](https://github.com/ultralytics/ultralytics)
+[![AI Model](https://img.shields.io/badge/Model-YOLOv11-green.svg)](https://github.com/ultralytics/ultralytics)
 [![Architecture](https://img.shields.io/badge/Architecture-Modular_OOP-orange.svg)](#)
 [![Docker](https://img.shields.io/badge/Docker-Edge_Ready-2496ED.svg)](https://www.docker.com/)
 
