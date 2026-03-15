@@ -7,7 +7,6 @@
 
 A professional-grade **Computer Vision AI Agent** designed for real-time object tracking on Edge AI devices (UAVs, Maritime vessels). Built with a robust **Modular OOP Architecture**, this system features a "Short-term Memory" mechanism for occlusion handling and runs flawlessly in Headless mode using Docker.
 
-> ** Demo:** The system automatically records its processing pipeline. Check out the output in the `data/sample_streams/` directory.
 
 ---
 
